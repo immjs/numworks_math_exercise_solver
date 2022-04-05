@@ -1,6 +1,13 @@
 digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
 variable_names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
 
+#############
+#  METHODS  #
+#############
+
+def flatten_lists_of_lists(t):
+  return [item for sublist in t for item in sublist]
+
 def group(callback, arr):
   groups = {}
   for i in arr:
@@ -15,15 +22,23 @@ def isfloat(num):
     return False
 
 def properly_format(str):
-  str = ''.join(str.split())
+  str = ''.join(str.split(' '))
   new_str = []
   paren_min_nest = float('inf')
   paren_nest_level = 0
+
   for i in range(0, len(str)):
-    new_str.append(str[i])
+    if (i == 0 or str[i - 1] == '(') and str[i] == '-':
+      new_str.append('0')
+
+    if not ((i == 0 or str[i - 1] == '(') and str[i] == '+'):
+      new_str.append(str[i])
+
     if i != len(str) - 1 and str[i+1] in ['('] + variable_names and str[i] in [')'] + digits + variable_names:
       new_str.append('*')
+
   str = ''.join(new_str)
+
   for i in range(0, len(str)):
     if str[i] == '(':
       paren_nest_level += 1
@@ -31,22 +46,30 @@ def properly_format(str):
       paren_nest_level -= 1
     elif paren_nest_level < paren_min_nest:
       paren_min_nest = paren_nest_level
+
   return str[paren_min_nest:(len(str) - paren_min_nest)]
 
-def look_for(str, operator):
+def look_for(str, operators):
   paren_nest_level = 0;
-  inner = []
+  inner = {}
   latest_substr = 0
+  latest_op = operators[0]
   for i in range(len(str)):
     if str[i] == '(':
       paren_nest_level += 1
     elif str[i] == ')':
       paren_nest_level -= 1
-    elif str[i] in operator and paren_nest_level == 0:
-      inner.append(str[latest_substr:i])
+    elif str[i] in operators and paren_nest_level == 0:
+      inner.setdefault(latest_op, []).append(str[latest_substr:i])
+      latest_op = str[i]
       latest_substr = i + 1
-  inner.append(str[latest_substr:len(str)])
+  inner.setdefault(latest_op, []).append(str[latest_substr:len(str)])
+  print(inner)
   return inner
+
+#############
+#  E X P R  #
+#############
 
 class Expr:
   @classmethod
@@ -59,18 +82,38 @@ class Expr:
   @staticmethod
   def from_string(str):
     str = properly_format(str)
-    pluses = look_for(str, {
-      '+': lambda x: x,
-      '-': lambda x: x.opposite(),
-    })
-    if len(pluses) != 1:
-      return Sum(*map(Expr.from_string, pluses))
-    times = look_for(str, {
-      '*': lambda x: x,
-      '/': lambda x: x.inverse(),
-    })
-    if len(times) != 1:
-      return Product(*map(Expr.from_string, times))
+    print(str)
+    pluses = look_for(str, ['+', '-'])
+    if len(flatten_lists_of_lists(pluses.values())) != 1:
+      print(list(map(Opposite, map(Expr.from_string, pluses['-']))))
+      return Sum(*(
+        list(map(
+          Expr.from_string,
+          pluses.setdefault('+', []),
+        ))
+        + list(map(
+          Opposite,
+          map(
+            Expr.from_string,
+            pluses.setdefault('-', []),
+          )
+        ))
+      ))
+    times = look_for(str, ['*', '/'])
+    if len(flatten_lists_of_lists(times.values())) != 1:
+      return Product(*(
+        list(map(
+          Expr.from_string,
+          times.setdefault('*', []),
+        ))
+        + list(map(
+          Inverse,
+          map(
+            Expr.from_string,
+            times.setdefault('/', []),
+          )
+        ))
+      ))
     return Unit(str)
 
   def __init__(self, *exprs):
@@ -104,8 +147,12 @@ class Expr:
   def may_vary(self):
     return any(map(lambda x: x.may_vary(), self.children))
 
+#############
+#    SUM    #
+#############
+
 class Sum(Expr):
-  priority=0
+  priority=1
   sign='+'
   identity=0
   def __init__(self, *exprs):
@@ -118,14 +165,25 @@ class Sum(Expr):
       result.children.append(childcopy)
     letterpos = []
     def sortfn(x):
-      non_variable_factors = x.filter(lambda x: not x.may_vary())
-      print(non_variable_factors)
+      variable_factors = map(
+        lambda x: Exp.from_expr(x),
+        filter(
+          lambda x: x.may_vary(),
+          Product.from_expr(x).children,
+        ),
+      )
+      print(list(variable_factors))
+      return 1
       # if 
-    # result.children = result.children.sorted()
+    result.children = sorted(result.children, key=sortfn)
     return result
 
+#############
+#  PRODUCT  #
+#############
+
 class Product(Expr):
-  priority=1
+  priority=2
   sign='*'
   identity=1
   def __init__(self, *exprs):
@@ -142,7 +200,7 @@ class Product(Expr):
 
   def factorize(self):
     if len(self.children) > 2:
-      return Product.factorize_from_exprs(*self.children[:-2], Product.factorize_from_exprs(*self.children[-2:]))
+      return Product.factorize_from_exprs(*(self.children[:-2] + [Product.factorize_from_exprs(*(self.children[-2:]))]))
     return Product.factorize_from_exprs(*self.children)
 
   def exec(self):
@@ -151,10 +209,12 @@ class Product(Expr):
       
     flattened = Product.flatten(*self.children)
 
+    removed_identity = list(filter(lambda x: x != self.identity, flattened))
+
     numbers = 1.0
     variables = {}
 
-    for child in flattened:
+    for child in removed_identity:
       if isinstance(child, Exp):
         variables.setdefault(child.base.unit, 0)
         variables[child.base.unit] += child.exp.unit
@@ -173,18 +233,31 @@ class Product(Expr):
         )
       result.children.append(insert_me)
     return result
-        
+
+#############
+#    EXP    #
+#############
 
 class Exp(Expr):
   priority=3
   sign='^'
   identity=1
+  @classmethod
+  def from_expr(cls, expr):
+    if isinstance(expr, cls):
+      return cls(*expr.children)
+    else:
+      return cls(expr, cls.identity)
   def __init__(self, base, exp):
     if not exp:
       exp = self.identity
     super().__init__(base, exp)
     self.base = base
     self.exp = exp
+
+#############
+#  U N I T  #
+#############
 
 class Unit:
   priority=5
@@ -201,7 +274,35 @@ class Unit:
   def may_vary(self):
     return self.is_variable
 
-expr = Expr.from_string('(x+1)(7+2x)')
-print(expr)
-print(expr.factorize())
-print(expr.factorize().exec())
+#############
+#  OPPOSIT  #
+#############
+
+class Opposite(Sum):
+  priority=4
+  sign='-'
+  def __init__(self, expr):
+    super().__init__(expr)
+    self.expr = expr
+  def exec(self):
+    return Product(self.expr, Unit(-1.0))
+  def __str__(self):
+    return '-{}'.format(self.expr)
+
+#############
+#  INVERSE  #
+#############
+
+class Inverse(Product):
+  priority=4
+  sign='/'
+  def __init__(self, expr):
+    super().__init__(expr)
+    self.expr = expr
+  def exec(self):
+    return Exp(self.expr, Unit(-1.0))
+  def __str__(self):
+    return '1.0/{}'.format(self.expr)
+
+expr = Expr.from_string('x(1/x)')
+print(expr.exec())
