@@ -278,16 +278,15 @@ class Unit:
 #  OPPOSIT  #
 #############
 
-class Opposite(Sum):
+class Opposite(Product):
   priority=4
   sign='-'
   def __init__(self, expr):
-    super().__init__(expr)
+    super().__init__(expr, Unit(-1.0))
     self.expr = expr
-  def exec(self):
-    return Product(self.expr, Unit(-1.0))
   def __str__(self):
-    return '-{}'.format(self.expr)
+    print('str called')
+    return '-({})'.format(self.expr)
 
 #############
 #  INVERSE  #
@@ -297,12 +296,14 @@ class Inverse(Product):
   priority=4
   sign='/'
   def __init__(self, expr):
-    super().__init__(expr)
+    super().__init__(expr, Unit(-1.0))
+    print('initialised')
     self.expr = expr
   def exec(self):
     return Exp(self.expr, Unit(-1.0))
   def __str__(self):
-    return '1.0/{}'.format(self.expr)
+    print('str called')
+    return '1.0/({})'.format(self.expr)
 
-expr = Expr.from_string('x(1/x)')
+expr = Expr.from_string('3*4-5*6')
 print(expr.exec())
